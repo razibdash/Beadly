@@ -7,6 +7,7 @@ import '../data/prayer_log_repository.dart';
 import '../data/settings_repository.dart';
 import '../models/app_settings.dart';
 import '../models/tradition.dart';
+import '../services/sound_service.dart';
 import '../services/volume_counting_service.dart';
 
 /// Central app state: current settings + in-progress count, and the daily
@@ -144,7 +145,7 @@ class AppState extends ChangeNotifier {
         HapticFeedback.heavyImpact();
       }
       if (_settings.soundEnabled) {
-        SystemSound.play(SystemSoundType.alert);
+        SoundService.instance.playChime();
       }
       return true;
     } else {
@@ -155,7 +156,7 @@ class AppState extends ChangeNotifier {
         HapticFeedback.selectionClick();
       }
       if (_settings.soundEnabled) {
-        SystemSound.play(SystemSoundType.click);
+        SoundService.instance.playTick();
       }
       return false;
     }

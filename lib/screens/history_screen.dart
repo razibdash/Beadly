@@ -36,7 +36,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               child: Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  color: BeadlyColors.accentGold.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(
@@ -60,7 +60,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    BeadlyColors.accentGold.withValues(alpha: 0.07),
+                    BeadlyColors.accentRose.withValues(alpha: 0.07),
+                  ],
+                ),
+                border: Border.all(color: theme.dividerColor),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: _view == _HistoryView.weekly
@@ -86,18 +94,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 _SummaryCard(
                   label: s.t('totalThisWeek'),
                   value: '${appState.thisWeekRounds}',
+                  color: BeadlyColors.accentGold,
+                  icon: Icons.calendar_view_week_rounded,
                 ),
                 _SummaryCard(
                   label: s.t('totalThisMonth'),
                   value: '${appState.thisMonthRounds}',
+                  color: BeadlyColors.accentRose,
+                  icon: Icons.calendar_month_rounded,
                 ),
                 _SummaryCard(
                   label: s.t('currentStreak'),
                   value: '${appState.currentStreak}',
+                  color: BeadlyColors.streakGreen,
+                  icon: Icons.local_fire_department_rounded,
                 ),
                 _SummaryCard(
                   label: s.t('bestDay'),
                   value: '${appState.bestDayRounds}',
+                  color: BeadlyColors.bestDayBlue,
+                  icon: Icons.star_rounded,
                 ),
               ],
             ),
@@ -142,27 +158,42 @@ class _ToggleButton extends StatelessWidget {
 class _SummaryCard extends StatelessWidget {
   final String label;
   final String value;
+  final Color color;
+  final IconData icon;
 
-  const _SummaryCard({required this.label, required this.value});
+  const _SummaryCard({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: color.withValues(alpha: isDark ? 0.16 : 0.10),
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: isDark ? 0.28 : 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            value,
-            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const Spacer(),
+              Text(
+                value,
+                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             label,
             style: theme.textTheme.bodySmall?.copyWith(

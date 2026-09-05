@@ -186,6 +186,20 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                'Developed by Razib Dash',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.color
+                          ?.withValues(alpha: 0.45),
+                    ),
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       ),

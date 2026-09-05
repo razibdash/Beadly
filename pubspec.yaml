@@ -37,6 +37,7 @@ dependencies:
   shared_preferences: ^2.5.5
   provider: ^6.1.5+1
   fl_chart: ^1.2.0
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -78,6 +79,7 @@ flutter:
 
   assets:
     - assets/logo/
+    - assets/sounds/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

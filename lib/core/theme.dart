@@ -21,6 +21,12 @@ class BeadlyColors {
   static const accentGold = Color(0xFFD9A441);
   static const accentRose = Color(0xFFC97B63);
 
+  // Secondary, muted accents for History's stat cards — same soft, warm
+  // register as the gold/rose gradient, just enough hue variety to tell
+  // cards apart at a glance.
+  static const streakGreen = Color(0xFF7BA88B);
+  static const bestDayBlue = Color(0xFF6E8FB0);
+
   static const accentGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
