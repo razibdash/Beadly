@@ -18,6 +18,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.VolumeProviderCompat
 import org.json.JSONObject
@@ -35,9 +36,12 @@ import java.util.Locale
  * session is the current "active" one, the OS routes volume-key presses to
  * it instead of adjusting the device volume. Becoming the active session
  * reliably (including once the screen is off) requires actually holding
- * onto music playback, hence the silent [AudioTrack] loop below - without
+ * onto music playback, hence the quiet [AudioTrack] loop below - without
  * it, some Android versions/OEMs fall back to adjusting the ringer/media
  * volume directly and never call [VolumeProviderCompat.onAdjustVolume].
+ * The loop plays a real (if very quiet) tone rather than digital silence:
+ * some OEM power managers (Samsung's included) specifically detect and
+ * suppress all-zero "fake" playback used to fish for audio focus.
  *
  * Counting logic mirrors AppState.increment() and reads/writes the exact
  * same on-device storage Flutter's `shared_preferences` plugin uses (file
@@ -47,6 +51,7 @@ import java.util.Locale
 class VolumeCounterService : Service() {
 
     companion object {
+        private const val TAG = "VolumeCounterService"
         const val ACTION_STOP = "com.example.beadly.action.STOP_VOLUME_SERVICE"
         private const val NOTIFICATION_CHANNEL_ID = "beadly_screen_off_counting"
         private const val NOTIFICATION_ID = 1001
@@ -61,8 +66,8 @@ class VolumeCounterService : Service() {
 
     private var mediaSession: MediaSessionCompat? = null
     private var audioTrack: AudioTrack? = null
-    private var silenceThread: Thread? = null
-    @Volatile private var keepPlayingSilence = false
+    private var loopThread: Thread? = null
+    @Volatile private var keepPlayingLoop = false
     private var toneGenerator: ToneGenerator? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -74,12 +79,13 @@ class VolumeCounterService : Service() {
         }
         startForegroundWithNotification()
         startMediaSession()
-        startSilentAudioLoop()
+        startQuietAudioLoop()
+        initToneGenerator()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        stopSilentAudioLoop()
+        stopQuietAudioLoop()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
@@ -153,7 +159,7 @@ class VolumeCounterService : Service() {
     }
 
     /** Keeps `isMusicActive()` true so the OS treats us as the active playback session. */
-    private fun startSilentAudioLoop() {
+    private fun startQuietAudioLoop() {
         val sampleRate = 8000
         val minBufferSize = AudioTrack.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
@@ -177,65 +183,95 @@ class VolumeCounterService : Service() {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         audioTrack = track
-        val silentBuffer = ShortArray(bufferSize / 2)
-        keepPlayingSilence = true
+
+        // A very quiet (~-45dB), continuously-varying tone - not digital
+        // silence, which some OEMs treat as fake playback and shut down.
+        val toneHz = 40.0
+        val periodSamples = (sampleRate / toneHz).toInt().coerceAtLeast(1)
+        val amplitude = 150
+        val toneBuffer = ShortArray(periodSamples) { i ->
+            (amplitude * kotlin.math.sin(2.0 * Math.PI * i / periodSamples)).toInt().toShort()
+        }
+
+        keepPlayingLoop = true
         track.play()
-        silenceThread = Thread {
-            while (keepPlayingSilence) {
-                audioTrack?.write(silentBuffer, 0, silentBuffer.size)
+        loopThread = Thread {
+            while (keepPlayingLoop) {
+                audioTrack?.write(toneBuffer, 0, toneBuffer.size)
             }
         }.also { it.start() }
     }
 
-    private fun stopSilentAudioLoop() {
-        keepPlayingSilence = false
-        silenceThread?.join(200)
-        silenceThread = null
+    private fun stopQuietAudioLoop() {
+        keepPlayingLoop = false
+        loopThread?.join(200)
+        loopThread = null
         audioTrack?.stop()
         audioTrack?.release()
         audioTrack = null
     }
 
+    // This runs on the main thread via the MediaSession callback, so any
+    // uncaught exception here would crash the whole app - every risky native
+    // call (prefs I/O, JSON, vibrator, tone generator) is guarded.
     private fun onVolumeKeyPressed() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val target = prefs.getLong(KEY_TARGET_COUNT, DEFAULT_TARGET)
-        val current = prefs.getLong(KEY_CURRENT_COUNT, 0L)
-        val soundEnabled = prefs.getBoolean(KEY_SOUND_ENABLED, true)
-        val vibrationEnabled = prefs.getBoolean(KEY_VIBRATION_ENABLED, true)
-        val next = current + 1
-        val editor = prefs.edit()
-        val completedRound = next >= target
-        if (completedRound) {
-            editor.putLong(KEY_CURRENT_COUNT, 0L)
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-            val logs = JSONObject(prefs.getString(KEY_DAILY_LOGS, null) ?: "{}")
-            logs.put(today, logs.optInt(today, 0) + 1)
-            editor.putString(KEY_DAILY_LOGS, logs.toString())
-        } else {
-            editor.putLong(KEY_CURRENT_COUNT, next)
+        try {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val target = prefs.getLong(KEY_TARGET_COUNT, DEFAULT_TARGET)
+            val current = prefs.getLong(KEY_CURRENT_COUNT, 0L)
+            val soundEnabled = prefs.getBoolean(KEY_SOUND_ENABLED, true)
+            val vibrationEnabled = prefs.getBoolean(KEY_VIBRATION_ENABLED, true)
+            val next = current + 1
+            val editor = prefs.edit()
+            val completedRound = next >= target
+            if (completedRound) {
+                editor.putLong(KEY_CURRENT_COUNT, 0L)
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                val logs = JSONObject(prefs.getString(KEY_DAILY_LOGS, null) ?: "{}")
+                logs.put(today, logs.optInt(today, 0) + 1)
+                editor.putString(KEY_DAILY_LOGS, logs.toString())
+            } else {
+                editor.putLong(KEY_CURRENT_COUNT, next)
+            }
+            editor.apply()
+            if (vibrationEnabled) vibrate(heavy = completedRound)
+            if (soundEnabled) playTone(completion = completedRound)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to handle volume key press", t)
         }
-        editor.apply()
-        if (vibrationEnabled) vibrate(heavy = completedRound)
-        if (soundEnabled) playTone(completion = completedRound)
     }
 
     private fun vibrate(heavy: Boolean) {
-        val vibrator = getSystemService(Vibrator::class.java) ?: return
-        val durationMs = if (heavy) 60L else 20L
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(durationMs)
+        try {
+            val vibrator = getSystemService(Vibrator::class.java) ?: return
+            val durationMs = if (heavy) 60L else 20L
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(durationMs)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Vibration failed", t)
+        }
+    }
+
+    private fun initToneGenerator() {
+        try {
+            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
+        } catch (t: Throwable) {
+            Log.e(TAG, "ToneGenerator unavailable, completion sound will be skipped", t)
+            toneGenerator = null
         }
     }
 
     private fun playTone(completion: Boolean) {
-        if (toneGenerator == null) {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
+        try {
+            val tone = if (completion) ToneGenerator.TONE_PROP_PROMPT else ToneGenerator.TONE_PROP_BEEP
+            toneGenerator?.startTone(tone, 120)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Playing tone failed", t)
         }
-        val tone = if (completion) ToneGenerator.TONE_PROP_PROMPT else ToneGenerator.TONE_PROP_BEEP
-        toneGenerator?.startTone(tone, 120)
     }
 
     private fun stopSelfCleanly() {
