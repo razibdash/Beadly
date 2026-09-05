@@ -47,3 +47,9 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // MediaSessionCompat / VolumeProviderCompat, used by the screen-off
+    // counting foreground service to intercept volume-button presses.
+    implementation("androidx.media:media:1.7.0")
+}
